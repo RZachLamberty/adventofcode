@@ -16,8 +16,6 @@ Usage:
 
 import itertools
 import os
-import pandas as pd
-import re
 
 from collections import defaultdict
 
@@ -34,7 +32,6 @@ FNAME = os.path.join('data', 'day17.txt')
 # ----------------------------- #
 
 def load_containers(fname=FNAME):
-    containers = []
     with open(fname, 'r') as f:
         return [int(line.strip()) for line in f.readlines()]
 
