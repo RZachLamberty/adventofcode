@@ -38,18 +38,26 @@ def load_data():
     return INPUT
 
 
+def make_hash(s, repNum=0):
+    for i in range(repNum + 1):
+        s = hashlib.md5(s.encode()).hexdigest()
+
+    return s
+
+
 def q_1(data):
     threeOf = collections.defaultdict(set)
     fiveOf = collections.defaultdict(set)
     hashes = set()
 
     i = 0
-    while not len(hashes) == 64:
-        re3 = re.search('(.)\\1\\1', hashlib.md5('{}{}'.format(data, i).encode()).hexdigest())
+    while len(hashes) < 64:
+        ihash = make_hash('{}{}'.format(data, i))
+        re3 = re.search('(.)\\1\\1', ihash)
         if re3 is not None:
             threeOf[re3.groups()[0]].add(i)
 
-        char5s = re.findall('(.)\\1\\1\\1\\1', hashlib.md5(('{}{}'.format(data, i).encode()).hexdigest))
+        char5s = re.findall('(.)\\1\\1\\1\\1', ihash)
         for char5 in char5s:
             fiveOf[char5].add(i)
             # if any of the previous 1k integers i are in char3 for this match
@@ -59,17 +67,40 @@ def q_1(data):
 
         i += 1
 
+    return sorted(hashes)[63]
+
 
 def test_q_1():
-    assert q_1(None) == None
+    assert q_1('abc') == 22728
 
 
 def q_2(data):
-    return None
+    threeOf = collections.defaultdict(set)
+    fiveOf = collections.defaultdict(set)
+    hashes = set()
+
+    i = 0
+    while len(hashes) < 64:
+        ihash = make_hash('{}{}'.format(data, i), repNum=2016)
+        re3 = re.search('(.)\\1\\1', ihash)
+        if re3 is not None:
+            threeOf[re3.groups()[0]].add(i)
+
+        char5s = re.findall('(.)\\1\\1\\1\\1', ihash)
+        for char5 in char5s:
+            fiveOf[char5].add(i)
+            # if any of the previous 1k integers i are in char3 for this match
+            # character, add that as a hash
+            validHashes = threeOf[char5].intersection(range(max(0, i - 1000), i))
+            hashes.update(validHashes)
+
+        i += 1
+
+    return sorted(hashes)[63]
 
 
 def test_q_2():
-    assert q_2(None) == None
+    assert q_2('abc') == 22551
 
 
 # ----------------------------- #
