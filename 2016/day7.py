@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Module: day17.py
+Module: day7.py
 Author: zlamberty
 Created: 2016-12-02
 
 Description:
-    day 17 puzzles for the advent of code (adventofcode.com/2016/day/17)
+    day 7 puzzles for the advent of code (adventofcode.com/2016/day/7)
 
 Usage:
     <usage>
@@ -24,8 +24,8 @@ import eri.logging as logging
 #   Module Constants            #
 # ----------------------------- #
 
-FNAME = os.path.join('data', 'day17.txt')
-logger = logging.getLogger('day17')
+FNAME = os.path.join('data', 'day7.txt')
+logger = logging.getLogger('day7')
 logging.configure()
 
 
@@ -125,7 +125,7 @@ def test_q_2():
 # ----------------------------- #
 
 if __name__ == '__main__':
-    logger.warning('day 17')
+    logger.warning('day 7')
     data = load_data()
     logger.info('question 1 answer: {}'.format(q_1(data)))
     logger.info('question 2 answer: {}'.format(q_2(data)))
