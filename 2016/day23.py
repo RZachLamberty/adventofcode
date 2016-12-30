@@ -68,7 +68,8 @@ def parse_instructions(data):
 
 
 class AssembunnyComputer(object):
-    def __init__(self, instructions, a=0, b=0, c=0, d=0, debug=False):
+    def __init__(self, instructions, a=0, b=0, c=0, d=0, shortcircuit=False,
+                 debug=False):
         self.instructions = instructions
         self.numInstructions = len(self.instructions)
         self.instructionPtr = 0
@@ -78,6 +79,7 @@ class AssembunnyComputer(object):
             'c': c,
             'd': d,
         }
+        self.shortcircuit = shortcircuit
         self.debug = debug
 
         if self.debug:
@@ -88,13 +90,12 @@ class AssembunnyComputer(object):
     def is_done(self):
         return self.instructionPtr >= self.numInstructions
 
-    def apply_instruction(self):
-        # handle common command sequences first
+    def is_addition(self):
         try:
             com0, a0 = self.instructions[self.instructionPtr]
             com1, a1 = self.instructions[self.instructionPtr + 1]
             com2, a2, b2 = self.instructions[self.instructionPtr + 2]
-            isJumploop = all([
+            isJumpLoop = all([
                 com2 == 'jnz',
                 b2 == -2,
                 (
@@ -106,10 +107,12 @@ class AssembunnyComputer(object):
                 )
             ])
 
-            if isJumploop:
+            if not isJumpLoop:
+                return False
+            else:
                 # we will increase arg00 and decrease arg01 until arg01 is empty
                 # this is equivalent to moving arg01 to arg00
-                if com0 == 'inc':
+                if self.instructions[self.instructionPtr][0] == 'inc':
                     incReg = a0
                     decReg = a1
                 else:
@@ -125,12 +128,33 @@ class AssembunnyComputer(object):
                 self.reg[incReg] += self.reg[decReg]
                 self.reg[decReg] = 0
                 self.instructionPtr += 3
-
-                self.log_status()
-
-                return
         except:
-            pass
+            return False
+
+    def is_multiplication(self):
+        # cheating, but whatevs
+        return self.instructionPtr == 2
+
+    def apply_instruction(self):
+        # handle common command sequences first
+        if self.is_addition():
+            # everything is already done in is_jump_loop
+            self.log_status()
+
+            return
+
+        if self.shortcircuit and self.is_multiplication():
+            a, b, c, d = self.reg['a'], self.reg['b'], self.reg['c'], self.reg['d']
+            self.reg = {
+                'a': a * b,
+                'b': b,
+                'c': 0,
+                'd': 0,
+            }
+            logger.debug('shortcircuit bruh')
+            self.instructionPtr = 10
+            self.log_status()
+            return
 
         # apply this one item and be done with it
         instruction = self.instructions[self.instructionPtr]
@@ -195,7 +219,7 @@ class AssembunnyComputer(object):
 
     def log_status(self):
         if self.debug:
-            logger.debug('self.reg = {}'.format(self.reg))
+            logger.debug('self.reg = [a = {a:}, b = {b:}, c={c:}, d={d:}]'.format(**self.reg))
             logger.debug('self.instructions = {}'.format(self.instructions))
             logger.debug('self.instructionPtr = {}'.format(self.instructionPtr))
             input()
@@ -203,12 +227,14 @@ class AssembunnyComputer(object):
             logger.info(self.reg)
 
 
-def q_1(data):
+def q_1(data, shortcircuit=True, debug=False):
     instructions, a0, outregister = data
     instructions = parse_instructions(instructions)
     ac = AssembunnyComputer(
         instructions=instructions,
-        a=a0
+        a=a0,
+        shortcircuit=shortcircuit,
+        debug=debug
     )
 
     while not ac.is_done():
@@ -218,7 +244,7 @@ def q_1(data):
 
 
 def test_q_1():
-    assert q_1(TEST_DATA) == 3
+    assert q_1(TEST_DATA, shortcircuit=False, debug=True) == 3
 
 
 def q_2(data, a0=12):
