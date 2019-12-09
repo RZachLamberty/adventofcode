@@ -4,18 +4,18 @@ import os
 
 import yaml
 
-
 with open('../logging.yaml') as fp:
     logging_config = yaml.load(fp, Loader=yaml.FullLoader)
 
 logging.config.dictConfig(logging_config)
 
-LOGGER = logging.getLogger('day07')
+LOGGER = logging.getLogger('aoc2019')
 LOGGER.setLevel(logging.WARN)
 logging.getLogger('parso').setLevel(logging.ERROR)
 
 POSITION = 0
 IMMEDIATE = 1
+
 
 def parse_opcode(x):
     return (x % 100,
@@ -25,7 +25,8 @@ def parse_opcode(x):
 
 
 def load_instruction(intcode, inst_ptr):
-    LOGGER.debug(f'intcode[inst_ptr: inst_ptr + 4] = {intcode[inst_ptr: inst_ptr + 4]}')
+    LOGGER.debug(
+        f'intcode[inst_ptr: inst_ptr + 4] = {intcode[inst_ptr: inst_ptr + 4]}')
     opcode = intcode[inst_ptr]
 
     abc = []
@@ -44,88 +45,107 @@ def smart_lookup(intcode, i, mode_i):
         return None
 
 
-def compute_intcode(intcode, inp=1):
-    inst_ptr = 0
-    outputs = []
-    while True:
-        LOGGER.info('applying instruction')
-        LOGGER.debug(f'intcode = {intcode}')
-        LOGGER.debug(f'inst_ptr = {inst_ptr}')
+class IntcodeComputer:
+    def __init__(self, intcode, inputs=None, inst_ptr=0):
+        self.intcode = list(intcode)
+        self.inputs = inputs or [1]
+        self.outputs = []
+        self.inst_ptr = inst_ptr
+        self._iter = None
 
-        opcode, [a, b, c] = load_instruction(intcode, inst_ptr)
-        opcode, mode_a, mode_b, mode_c = parse_opcode(opcode)
-        mode_a_str = 'POSITION' if mode_a == POSITION else 'IMMEDIATE'
-        mode_b_str = 'POSITION' if mode_b == POSITION else 'IMMEDIATE'
-        mode_c_str = 'POSITION' if mode_c == POSITION else 'IMMEDIATE'
-        a_val = smart_lookup(intcode, a, mode_a)
-        b_val = smart_lookup(intcode, b, mode_b)
-        c_val = smart_lookup(intcode, c, mode_c)
+    def get_output(self):
+        if self._iter is None:
+            self._iter = self.__iter__()
+        return next(self._iter)
 
-        LOGGER.debug(f'opcode = {opcode}')
-        LOGGER.debug(f'a = {a}')
-        LOGGER.debug(f'mode_a = {mode_a}')
-        LOGGER.debug(f'mode_a_str = {mode_a_str}')
-        LOGGER.debug(f'b = {b}')
-        LOGGER.debug(f'mode_b = {mode_b}')
-        LOGGER.debug(f'mode_b_str = {mode_b_str}')
-        LOGGER.debug(f'c = {c}')
-        LOGGER.debug(f'mode_c = {mode_c}')
-        LOGGER.debug(f'mode_c_str = {mode_c_str}')
+    def __iter__(self):
+        outputs = []
+        while True:
+            LOGGER.info('applying instruction')
+            LOGGER.debug(f'intcode = {self.intcode}')
+            LOGGER.debug(f'inst_ptr = {self.inst_ptr}')
 
-        if opcode == 1:
-            LOGGER.debug(f'add: {mode_a_str} {a} + {mode_b_str} {b}')
-            LOGGER.debug(f'add: {a_val} + {b_val}')
-            LOGGER.debug(f'save in position {c}')
-            intcode[c] = a_val + b_val
-            inst_ptr += 4
-        elif opcode == 2:
-            LOGGER.debug(f'mult: {mode_a_str} {a} * {mode_b_str} {b}')
-            LOGGER.debug(f'mult: {a_val} * {b_val}')
-            LOGGER.debug(f'save in position {c}')
-            intcode[c] = a_val * b_val
-            inst_ptr += 4
-        elif opcode == 3:
-            LOGGER.debug(f'read input')
-            LOGGER.debug(f'save in position {a}')
-            intcode[a] = inp
-            inst_ptr += 2
-        elif opcode == 4:
-            LOGGER.debug('output')
-            outputs.append(a_val)
-            yield a_val
-            inst_ptr += 2
-        elif opcode == 5:
-            LOGGER.debug('jump-if-true (aka non-zero)')
-            LOGGER.debug(f'jump: {mode_a_str} {a} != 0')
-            LOGGER.debug(f'jump: {a_val} != 0')
-            if a_val != 0:
-                inst_ptr = b_val
+            opcode, [a, b, c] = load_instruction(self.intcode, self.inst_ptr)
+            opcode, mode_a, mode_b, mode_c = parse_opcode(opcode)
+            mode_a_str = 'POSITION' if mode_a == POSITION else 'IMMEDIATE'
+            mode_b_str = 'POSITION' if mode_b == POSITION else 'IMMEDIATE'
+            mode_c_str = 'POSITION' if mode_c == POSITION else 'IMMEDIATE'
+            a_val = smart_lookup(self.intcode, a, mode_a)
+            b_val = smart_lookup(self.intcode, b, mode_b)
+            c_val = smart_lookup(self.intcode, c, mode_c)
+
+            LOGGER.debug(f'opcode = {opcode}')
+            LOGGER.debug(f'a = {a}')
+            LOGGER.debug(f'mode_a = {mode_a} ({mode_a_str})')
+            LOGGER.debug(f'b = {b}')
+            LOGGER.debug(f'mode_b = {mode_b} ({mode_b_str})')
+            LOGGER.debug(f'c = {c}')
+            LOGGER.debug(f'mode_c = {mode_c} ({mode_c_str})')
+
+            if opcode == 1:
+                LOGGER.debug(f'add: {mode_a_str} {a} + {mode_b_str} {b}')
+                LOGGER.debug(f'add: {a_val} + {b_val}')
+                LOGGER.debug(f'save in position {c}')
+                self.intcode[c] = a_val + b_val
+                self.inst_ptr += 4
+            elif opcode == 2:
+                LOGGER.debug(f'mult: {mode_a_str} {a} * {mode_b_str} {b}')
+                LOGGER.debug(f'mult: {a_val} * {b_val}')
+                LOGGER.debug(f'save in position {c}')
+                self.intcode[c] = a_val * b_val
+                self.inst_ptr += 4
+            elif opcode == 3:
+                LOGGER.debug(f'read from input list')
+                LOGGER.debug(f'save in position {a}')
+                LOGGER.debug(f'inputs before: {self.inputs}')
+                inp = self.inputs.pop(0)
+                LOGGER.debug(f'input to load: {inp}')
+                self.intcode[a] = inp
+                LOGGER.debug(f'inputs after: {self.inputs}')
+                self.inst_ptr += 2
+            elif opcode == 4:
+                LOGGER.debug('output')
+                self.outputs.append(a_val)
+                yield a_val
+                self.inst_ptr += 2
+            elif opcode == 5:
+                LOGGER.debug('jump-if-true (aka non-zero)')
+                LOGGER.debug(f'jump: {mode_a_str} {a} != 0')
+                LOGGER.debug(f'jump: {a_val} != 0')
+                if a_val != 0:
+                    self.inst_ptr = b_val
+                else:
+                    self.inst_ptr += 3
+            elif opcode == 6:
+                LOGGER.debug('jump-if-false (aka zero)')
+                LOGGER.debug(f'jump: {mode_a_str} {a} == 0')
+                LOGGER.debug(f'jump: {a_val} == 0')
+                if a_val == 0:
+                    self.inst_ptr = b_val
+                else:
+                    self.inst_ptr += 3
+            elif opcode == 7:
+                LOGGER.debug(f'less than: {mode_a_str} {a} < {mode_b_str} {b}')
+                LOGGER.debug(f'less than: {a_val} < {b_val}')
+                LOGGER.debug(f'save in position {c}')
+                self.intcode[c] = int(a_val < b_val)
+                self.inst_ptr += 4
+            elif opcode == 8:
+                LOGGER.debug(f'equal: {mode_a_str} {a} == {mode_b_str} {b}')
+                LOGGER.debug(f'equal: {a_val} == {b_val}')
+                LOGGER.debug(f'save in position {c}')
+                self.intcode[c] = int(a_val == b_val)
+                self.inst_ptr += 4
+            elif opcode == 99:
+                return
             else:
-                inst_ptr += 3
-        elif opcode == 6:
-            LOGGER.debug('jump-if-false (aka zero)')
-            LOGGER.debug(f'jump: {mode_a_str} {a} == 0')
-            LOGGER.debug(f'jump: {a_val} == 0')
-            if a_val == 0:
-                inst_ptr = b_val
-            else:
-                inst_ptr += 3
-        elif opcode == 7:
-            LOGGER.debug(f'less than: {mode_a_str} {a} < {mode_b_str} {b}')
-            LOGGER.debug(f'less than: {a_val} < {b_val}')
-            LOGGER.debug(f'save in position {c}')
-            intcode[c] = int(a_val < b_val)
-            inst_ptr += 4
-        elif opcode == 8:
-            LOGGER.debug(f'equal: {mode_a_str} {a} == {mode_b_str} {b}')
-            LOGGER.debug(f'equal: {a_val} == {b_val}')
-            LOGGER.debug(f'save in position {c}')
-            intcode[c] = int(a_val == b_val)
-            inst_ptr += 4
-        elif opcode == 99:
-            return
-        else:
-            raise ValueError(f'opcode = {opcode}')
+                raise ValueError(f'opcode = {opcode}')
+
+
+def compute_intcode(intcode, inputs=[1], inst_ptr=0):
+    return IntcodeComputer(intcode=intcode,
+                           inputs=inputs,
+                           inst_ptr=inst_ptr)
 
 
 def test_parse_opcode():
@@ -136,10 +156,10 @@ def test_compute_intcode_day_02():
     LOGGER.warning(f'day 02 tests for compute_intcode')
     tests = [([1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50],
               [3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]),
-             ([1,0,0,0,99], [2,0,0,0,99]),
-             ([2,3,0,3,99], [2,3,0,6,99]),
-             ([2,4,4,5,99,0], [2,4,4,5,99,9801]),
-             ([1,1,1,4,99,5,6,0,99], [30,1,1,4,2,5,6,0,99]), ]
+             ([1, 0, 0, 0, 99], [2, 0, 0, 0, 99]),
+             ([2, 3, 0, 3, 99], [2, 3, 0, 6, 99]),
+             ([2, 4, 4, 5, 99, 0], [2, 4, 4, 5, 99, 9801]),
+             ([1, 1, 1, 4, 99, 5, 6, 0, 99], [30, 1, 1, 4, 2, 5, 6, 0, 99]), ]
     for (initial_state, final_state) in tests:
         LOGGER.info(f'initial_state = {initial_state}')
         LOGGER.debug(f'final_state = {final_state}')
@@ -151,39 +171,42 @@ def test_compute_intcode_day_02():
 def test_compute_intcode_day_05():
     LOGGER.warning(f'day 05 tests for compute_intcode')
     for inp in [1, 10, 100, 1000]:
-        LOGGER.info(f'day 5 input test: {inp}') 
-        for output in compute_intcode([3, 0, 4, 0, 99], inp=inp):
+        LOGGER.info(f'day 5 input test: {inp}')
+        for output in compute_intcode([3, 0, 4, 0, 99], inputs=[inp]):
             assert output == inp
 
     def q_2(intcode, inp):
-        for return_code in compute_intcode(intcode, inp):
+        for return_code in compute_intcode(intcode, [inp]):
             return return_code
 
     # input == 8?
-    assert q_2([3,9,8,9,10,9,4,9,99,-1,8], 1) == 0
-    assert q_2([3,9,8,9,10,9,4,9,99,-1,8], 8) == 1
+    assert q_2([3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8], 1) == 0
+    assert q_2([3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8], 8) == 1
 
     # input < 8?
-    assert q_2([3,9,7,9,10,9,4,9,99,-1,8], 8) == 0
-    assert q_2([3,9,7,9,10,9,4,9,99,-1,8], 7) == 1
+    assert q_2([3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8], 8) == 0
+    assert q_2([3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8], 7) == 1
 
     # input == 8?
-    assert q_2([3,3,1108,-1,8,3,4,3,99], 1) == 0
-    assert q_2([3,3,1108,-1,8,3,4,3,99], 8) == 1
+    assert q_2([3, 3, 1108, -1, 8, 3, 4, 3, 99], 1) == 0
+    assert q_2([3, 3, 1108, -1, 8, 3, 4, 3, 99], 8) == 1
 
     # input < 8?
-    assert q_2([3,3,1107,-1,8,3,4,3,99], 8) == 0
-    assert q_2([3,3,1107,-1,8,3,4,3,99], 7) == 1
+    assert q_2([3, 3, 1107, -1, 8, 3, 4, 3, 99], 8) == 0
+    assert q_2([3, 3, 1107, -1, 8, 3, 4, 3, 99], 7) == 1
 
     # 0 if 0, 1 else?
-    assert q_2([3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9], 0) == 0
-    assert q_2([3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9], 8) == 1
-    assert q_2([3,3,1105,-1,9,1101,0,0,12,4,12,99,1], 0) == 0
-    assert q_2([3,3,1105,-1,9,1101,0,0,12,4,12,99,1], 8) == 1
+    assert q_2([3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9],
+               0) == 0
+    assert q_2([3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9],
+               8) == 1
+    assert q_2([3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1], 0) == 0
+    assert q_2([3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1], 8) == 1
 
-    big_prog = [3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,
-                1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,
-                999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99]
+    big_prog = [
+        3, 21, 1008, 21, 8, 20, 1005, 20, 22, 107, 8, 21, 20, 1006, 20, 31,
+        1106, 0, 36, 98, 0, 0, 1002, 21, 125, 20, 4, 20, 1105, 1, 46, 104, 999,
+        1105, 1, 46, 1101, 1000, 1, 20, 4, 20, 1105, 1, 46, 98, 99]
     assert q_2(big_prog, 7) == 999
     assert q_2(big_prog, 8) == 1000
     assert q_2(big_prog, 9) == 1001
