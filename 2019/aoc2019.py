@@ -1,3 +1,4 @@
+import functools
 import logging
 import logging.config
 import os
@@ -15,8 +16,39 @@ logging.getLogger('parso').setLevel(logging.ERROR)
 
 POSITION = 0
 IMMEDIATE = 1
+RELATIVE = 2
+
+ADD = 1
+MUL = 2
+IN = 3
+OUT = 4
+JUMP_TRUE = 5
+JUMP_FALSE = 6
+LESS_THAN = 7
+EQUALS = 8
+ADD_RELATIVE_BASE = 9
+HALT = 99
+
+READ = 0
+WRITE = 1
+
+OPS = {ADD: (READ, READ, WRITE),
+       MUL: (READ, READ, WRITE),
+       IN: (WRITE,),
+       OUT: (READ,),
+       JUMP_TRUE: (READ, READ),
+       JUMP_FALSE: (READ, READ),
+       LESS_THAN: (READ, READ, WRITE),
+       EQUALS: (READ, READ, WRITE),
+       ADD_RELATIVE_BASE: (READ,),
+       HALT: (), }
+
+MODE_STR = {POSITION: 'POSITION',
+            IMMEDIATE: 'IMMEDIATE',
+            RELATIVE: 'RELATIVE', }
 
 
+@functools.lru_cache(None)
 def parse_opcode(x):
     return (x % 100,
             x // 100 % 10,
@@ -24,39 +56,92 @@ def parse_opcode(x):
             x // 1_0000 % 10)
 
 
-def load_instruction(intcode, inst_ptr):
-    LOGGER.debug(
-        f'intcode[inst_ptr: inst_ptr + 4] = {intcode[inst_ptr: inst_ptr + 4]}')
-    opcode = intcode[inst_ptr]
-
-    abc = []
-    for i in range(1, 4):
-        try:
-            abc.append(intcode[inst_ptr + i])
-        except IndexError:
-            abc.append(None)
-    return opcode, abc
-
-
-def smart_lookup(intcode, i, mode_i):
-    try:
-        return i if mode_i == IMMEDIATE else intcode[i]
-    except (IndexError, TypeError):
-        return None
+def smart_lookup(intcode, i, mode_i, relative_base=0):
+    if mode_i == IMMEDIATE:
+        return i
+    elif mode_i in [POSITION, RELATIVE]:
+        lookup_addr = i
+        if mode_i == RELATIVE:
+            lookup_addr += relative_base
+        if lookup_addr < 0:
+            LOGGER.debug('invalid negative memory address')
+            return None
+        return intcode.get(lookup_addr, 0)
 
 
 class IntcodeComputer:
-    def __init__(self, intcode, inputs=None, inst_ptr=0):
-        self.intcode = list(intcode)
+    def __init__(self, intcode, inputs=None, inst_ptr=0, relative_base=0):
+        self._orig_intcode = list(intcode)
+        self._intcode = dict(enumerate(self._orig_intcode))
         self.inputs = inputs or [1]
         self.outputs = []
         self.inst_ptr = inst_ptr
         self._iter = None
+        self.relative_base = relative_base
+
+    @property
+    def intcode(self):
+        x = [0] * (max(self._intcode.keys()) + 1)
+        for (i, val) in self._intcode.items():
+            x[i] = val
+        return x
 
     def get_output(self):
         if self._iter is None:
             self._iter = self.__iter__()
         return next(self._iter)
+
+    def load_instruction(self):
+        LOGGER.debug('getting opcode and mode values')
+        opcode = self._intcode[self.inst_ptr]
+        opcode, mode_a, mode_b, mode_c = parse_opcode(opcode)
+        modes = [mode_a, mode_b, mode_c]
+        LOGGER.debug(f'intcode[ip] = {opcode}')
+        LOGGER.debug(f"mode_a is {MODE_STR[mode_a]} ({mode_a})")
+        LOGGER.debug(f"mode_b is {MODE_STR[mode_b]} ({mode_b})")
+        LOGGER.debug(f"mode_c is {MODE_STR[mode_c]} ({mode_c})")
+
+        LOGGER.debug('reading parameters')
+        param_kinds = OPS[opcode]
+        ret_list = [None] * 3
+        for (i, (param_kind, mode)) in enumerate(zip(param_kinds, modes)):
+            val_now = self._intcode.get(self.inst_ptr + i + 1, 0)
+            LOGGER.debug(f"intcode[ip + {i + 1}] = {val_now}")
+            LOGGER.debug(f"mode:{i} is {MODE_STR[mode_a]} ({mode_a})")
+            if mode == IMMEDIATE:
+                if param_kind == WRITE:
+                    raise ValueError('wtf shouldn\'t be possible')
+                LOGGER.debug('READ IMMEDIATE')
+                LOGGER.debug(f'param:{i} = {val_now}')
+                ret_list[i] = val_now
+            elif mode in [POSITION, RELATIVE]:
+                if mode == RELATIVE:
+                    val_now += self.relative_base
+                    LOGGER.debug(f'mode is relative, val_now = {val_now}')
+
+                if val_now < 0:
+                    msg = 'invalid negative memory address'
+                    LOGGER.critical(msg)
+                    raise ValueError(msg)
+
+                if param_kind == READ:
+                    new_val = self._intcode.get(val_now, 0)
+                    LOGGER.debug(f'intcode[{val_now}] = {new_val}')
+                    val_now = new_val
+                # if write, just use the value as the register
+
+                LOGGER.debug(f'param:{i} = {val_now}')
+                ret_list[i] = val_now
+            else:
+                raise ValueError(f"invalid mode {mode}")
+
+        LOGGER.debug(f'intcode[inst_ptr: inst_ptr + 4] = {ret_list}')
+        inst_ptr_delta = len(param_kinds) + 1
+        LOGGER.debug(f'moving inst_ptr forward {inst_ptr_delta} spots')
+        LOGGER.debug(f'{self.inst_ptr} --> {self.inst_ptr} + {inst_ptr_delta}')
+        self.inst_ptr += inst_ptr_delta
+        LOGGER.debug(f'inst_ptr = {self.inst_ptr}')
+        return [opcode] + ret_list
 
     def __iter__(self):
         outputs = []
@@ -65,78 +150,52 @@ class IntcodeComputer:
             LOGGER.debug(f'intcode = {self.intcode}')
             LOGGER.debug(f'inst_ptr = {self.inst_ptr}')
 
-            opcode, [a, b, c] = load_instruction(self.intcode, self.inst_ptr)
-            opcode, mode_a, mode_b, mode_c = parse_opcode(opcode)
-            mode_a_str = 'POSITION' if mode_a == POSITION else 'IMMEDIATE'
-            mode_b_str = 'POSITION' if mode_b == POSITION else 'IMMEDIATE'
-            mode_c_str = 'POSITION' if mode_c == POSITION else 'IMMEDIATE'
-            a_val = smart_lookup(self.intcode, a, mode_a)
-            b_val = smart_lookup(self.intcode, b, mode_b)
-            c_val = smart_lookup(self.intcode, c, mode_c)
-
+            opcode, a, b, c = self.load_instruction()
             LOGGER.debug(f'opcode = {opcode}')
             LOGGER.debug(f'a = {a}')
-            LOGGER.debug(f'mode_a = {mode_a} ({mode_a_str})')
             LOGGER.debug(f'b = {b}')
-            LOGGER.debug(f'mode_b = {mode_b} ({mode_b_str})')
             LOGGER.debug(f'c = {c}')
-            LOGGER.debug(f'mode_c = {mode_c} ({mode_c_str})')
 
-            if opcode == 1:
-                LOGGER.debug(f'add: {mode_a_str} {a} + {mode_b_str} {b}')
-                LOGGER.debug(f'add: {a_val} + {b_val}')
-                LOGGER.debug(f'save in position {c}')
-                self.intcode[c] = a_val + b_val
-                self.inst_ptr += 4
-            elif opcode == 2:
-                LOGGER.debug(f'mult: {mode_a_str} {a} * {mode_b_str} {b}')
-                LOGGER.debug(f'mult: {a_val} * {b_val}')
-                LOGGER.debug(f'save in position {c}')
-                self.intcode[c] = a_val * b_val
-                self.inst_ptr += 4
-            elif opcode == 3:
-                LOGGER.debug(f'read from input list')
-                LOGGER.debug(f'save in position {a}')
+            if opcode == ADD:
+                LOGGER.debug(f'ADD: intcode[{c}] = {a} + {b}')
+                self._intcode[c] = a + b
+            elif opcode == MUL:
+                LOGGER.debug(f'MUL: intcode[{c}] = {a} * {b}')
+                self._intcode[c] = a * b
+            elif opcode == IN:
+                LOGGER.debug(f'intcode[{a}] = {self.inputs[0]}')
                 LOGGER.debug(f'inputs before: {self.inputs}')
                 inp = self.inputs.pop(0)
                 LOGGER.debug(f'input to load: {inp}')
-                self.intcode[a] = inp
+                self._intcode[a] = inp
                 LOGGER.debug(f'inputs after: {self.inputs}')
-                self.inst_ptr += 2
-            elif opcode == 4:
-                LOGGER.debug('output')
-                self.outputs.append(a_val)
-                yield a_val
-                self.inst_ptr += 2
-            elif opcode == 5:
+            elif opcode == OUT:
+                LOGGER.debug(f'output {a}')
+                self.outputs.append(a)
+                yield a
+            elif opcode == JUMP_TRUE:
                 LOGGER.debug('jump-if-true (aka non-zero)')
-                LOGGER.debug(f'jump: {mode_a_str} {a} != 0')
-                LOGGER.debug(f'jump: {a_val} != 0')
-                if a_val != 0:
-                    self.inst_ptr = b_val
-                else:
-                    self.inst_ptr += 3
-            elif opcode == 6:
+                LOGGER.debug(f'if {a} != 0: inst_ptr = {b}')
+                if a != 0:
+                    self.inst_ptr = b
+            elif opcode == JUMP_FALSE:
                 LOGGER.debug('jump-if-false (aka zero)')
-                LOGGER.debug(f'jump: {mode_a_str} {a} == 0')
-                LOGGER.debug(f'jump: {a_val} == 0')
-                if a_val == 0:
-                    self.inst_ptr = b_val
-                else:
-                    self.inst_ptr += 3
-            elif opcode == 7:
-                LOGGER.debug(f'less than: {mode_a_str} {a} < {mode_b_str} {b}')
-                LOGGER.debug(f'less than: {a_val} < {b_val}')
-                LOGGER.debug(f'save in position {c}')
-                self.intcode[c] = int(a_val < b_val)
-                self.inst_ptr += 4
-            elif opcode == 8:
-                LOGGER.debug(f'equal: {mode_a_str} {a} == {mode_b_str} {b}')
-                LOGGER.debug(f'equal: {a_val} == {b_val}')
-                LOGGER.debug(f'save in position {c}')
-                self.intcode[c] = int(a_val == b_val)
-                self.inst_ptr += 4
-            elif opcode == 99:
+                LOGGER.debug(f'if {a} == 0: inst_ptr = {b}')
+                if a == 0:
+                    self.inst_ptr = b
+            elif opcode == LESS_THAN:
+                LOGGER.debug('less than')
+                LOGGER.debug(f'intcode[c] = {a} < {b}')
+                self._intcode[c] = int(a < b)
+            elif opcode == EQUALS:
+                LOGGER.debug('equals}')
+                LOGGER.debug(f'intcode[c] = {a} == {b}')
+                self._intcode[c] = int(a == b)
+            elif opcode == ADD_RELATIVE_BASE:
+                LOGGER.debug(f'updating relative base')
+                LOGGER.debug(f'relative_base = {self.relative_base} + {a}')
+                self.relative_base += a
+            elif opcode == HALT:
                 return
             else:
                 raise ValueError(f'opcode = {opcode}')
@@ -163,9 +222,10 @@ def test_compute_intcode_day_02():
     for (initial_state, final_state) in tests:
         LOGGER.info(f'initial_state = {initial_state}')
         LOGGER.debug(f'final_state = {final_state}')
-        for output in compute_intcode(initial_state):
+        ic = IntcodeComputer(intcode=initial_state)
+        for output in ic:
             print(f'output: {output}')
-        assert initial_state == final_state
+        assert ic.intcode == final_state, f'initial_state = {initial_state}\nfinal_state = {final_state}'
 
 
 def test_compute_intcode_day_05():
@@ -212,11 +272,36 @@ def test_compute_intcode_day_05():
     assert q_2(big_prog, 9) == 1001
 
 
+def test_compute_intcode_day_07():
+    pass
+
+
+def test_compute_intcode_day_09():
+    LOGGER.warning(f'day 09 tests for compute_intcode')
+    test_ic = [109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101,
+               1006, 101, 0, 99]
+    ic = IntcodeComputer(intcode=test_ic, inputs=[None])
+    output = list(ic)
+    assert output == test_ic
+
+    test_ic = [1102, 34915192, 34915192, 7, 4, 7, 99, 0]
+    ic = IntcodeComputer(intcode=test_ic)
+    output = ic.get_output()
+    assert len(str(output)) == 16
+
+    test_ic = [104, 1125899906842624, 99]
+    ic = IntcodeComputer(intcode=test_ic)
+    output = ic.get_output()
+    assert output == test_ic[1]
+
+
 def run_tests():
     LOGGER.setLevel(logging.DEBUG)
     test_parse_opcode()
     test_compute_intcode_day_02()
     test_compute_intcode_day_05()
+    test_compute_intcode_day_07()
+    test_compute_intcode_day_09()
     LOGGER.setLevel(logging.WARN)
 
 
