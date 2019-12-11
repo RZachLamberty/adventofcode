@@ -42,6 +42,7 @@ OPS = {ADD: (READ, READ, WRITE),
        EQUALS: (READ, READ, WRITE),
        ADD_RELATIVE_BASE: (READ,),
        HALT: (), }
+INST_PTR_DELTAS = {k: len(v) + 1 for (k, v) in OPS.items()}
 
 MODE_STR = {POSITION: 'POSITION',
             IMMEDIATE: 'IMMEDIATE',
@@ -136,7 +137,7 @@ class IntcodeComputer:
                 raise ValueError(f"invalid mode {mode}")
 
         LOGGER.debug(f'intcode[inst_ptr: inst_ptr + 4] = {ret_list}')
-        inst_ptr_delta = len(param_kinds) + 1
+        inst_ptr_delta = INST_PTR_DELTAS[opcode]
         LOGGER.debug(f'moving inst_ptr forward {inst_ptr_delta} spots')
         LOGGER.debug(f'{self.inst_ptr} --> {self.inst_ptr} + {inst_ptr_delta}')
         self.inst_ptr += inst_ptr_delta
@@ -144,7 +145,6 @@ class IntcodeComputer:
         return [opcode] + ret_list
 
     def __iter__(self):
-        outputs = []
         while True:
             LOGGER.info('applying instruction')
             LOGGER.debug(f'intcode = {self.intcode}')
@@ -171,7 +171,6 @@ class IntcodeComputer:
                 LOGGER.debug(f'inputs after: {self.inputs}')
             elif opcode == OUT:
                 LOGGER.debug(f'output {a}')
-                self.outputs.append(a)
                 yield a
             elif opcode == JUMP_TRUE:
                 LOGGER.debug('jump-if-true (aka non-zero)')
@@ -192,7 +191,7 @@ class IntcodeComputer:
                 LOGGER.debug(f'intcode[c] = {a} == {b}')
                 self._intcode[c] = int(a == b)
             elif opcode == ADD_RELATIVE_BASE:
-                LOGGER.debug(f'updating relative base')
+                LOGGER.debug('updating relative base')
                 LOGGER.debug(f'relative_base = {self.relative_base} + {a}')
                 self.relative_base += a
             elif opcode == HALT:
