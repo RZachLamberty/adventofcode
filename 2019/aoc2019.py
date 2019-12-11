@@ -74,8 +74,7 @@ class IntcodeComputer:
     def __init__(self, intcode, inputs=None, inst_ptr=0, relative_base=0):
         self._orig_intcode = list(intcode)
         self._intcode = dict(enumerate(self._orig_intcode))
-        self.inputs = inputs or [1]
-        self.outputs = []
+        self.inputs = [] if inputs is None else []
         self.inst_ptr = inst_ptr
         self._iter = None
         self.relative_base = relative_base
