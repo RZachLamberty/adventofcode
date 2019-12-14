@@ -56,9 +56,9 @@ def q_1(data):
     numelves = data
     i0 = 0
     while len(presents) > 1:
-        # get next active elf
+        # chem_get next active elf
         if i0 in presents:
-            # get next present-baring elf
+            # chem_get next present-baring elf
             i1 = (i0 + 1) % numelves
             while i1 not in presents:
                 i1 += 1

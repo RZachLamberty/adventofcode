@@ -54,7 +54,7 @@ def q_1(n):
     # elements in it. they are in 4 groups of 2n elements (per side)
     transverse = (n - shell_start - 1) % (num_per_side - 1) + 1
 
-    # to get to a corner you would take (shell, shell) steps. wlog assume all up
+    # to chem_get to a corner you would take (shell, shell) steps. wlog assume all up
     # and left, so positive. if the destination is not on the corner, you've
     # walked farther than you needed to. walk it back some number of steps
     # (subtract). "going negative" here is just crossing 0, so abs after
