@@ -3,7 +3,12 @@ import logging
 import logging.config
 import os
 
+import numpy as np
 import yaml
+
+from IPython.core.display import display
+from ipywidgets import Output
+
 
 with open('../logging.yaml') as fp:
     logging_config = yaml.load(fp, Loader=yaml.FullLoader)
@@ -74,7 +79,7 @@ class IntcodeComputer:
     def __init__(self, intcode, inputs=None, inst_ptr=0, relative_base=0):
         self._orig_intcode = list(intcode)
         self._intcode = dict(enumerate(self._orig_intcode))
-        self.inputs = [] if inputs is None else []
+        self.inputs = [] if inputs is None else inputs
         self.inst_ptr = inst_ptr
         self._iter = None
         self.relative_base = relative_base
@@ -85,6 +90,14 @@ class IntcodeComputer:
         for (i, val) in self._intcode.items():
             x[i] = val
         return x
+
+    def get_input(self):
+        LOGGER.debug('popping from self.inputs')
+        LOGGER.debug(f'inputs before: {self.inputs}')
+        inp = self.inputs.pop(0)
+        LOGGER.debug(f'input to load: {inp}')
+        LOGGER.debug(f'inputs after: {self.inputs}')
+        return inp
 
     def get_output(self):
         if self._iter is None:
@@ -162,12 +175,7 @@ class IntcodeComputer:
                 LOGGER.debug(f'MUL: intcode[{c}] = {a} * {b}')
                 self._intcode[c] = a * b
             elif opcode == IN:
-                LOGGER.debug(f'intcode[{a}] = {self.inputs[0]}')
-                LOGGER.debug(f'inputs before: {self.inputs}')
-                inp = self.inputs.pop(0)
-                LOGGER.debug(f'input to load: {inp}')
-                self._intcode[a] = inp
-                LOGGER.debug(f'inputs after: {self.inputs}')
+                self._intcode[a] = self.get_input()
             elif opcode == OUT:
                 LOGGER.debug(f'output {a}')
                 yield a
@@ -197,6 +205,117 @@ class IntcodeComputer:
                 return
             else:
                 raise ValueError(f'opcode = {opcode}')
+
+
+# game enums
+UNKNOWN = -1
+EMPTY = 0
+WALL = 1
+BLOCK = 2
+PADDLE = 3
+BALL = 4
+
+DRAW_CHAR = {EMPTY: ' ',
+             WALL: '+',
+             BLOCK: '■',
+             PADDLE: '─',
+             BALL: '@',
+             UNKNOWN: '?', }
+
+LEFT, NEUTRAL, RIGHT = -1, 0, 1
+
+class ArcadeGame(IntcodeComputer):
+    def __init__(self, *args, **kwargs):
+        """just create an output widget and otherwise defer"""
+        self.screen = {}
+        self.score = None
+        self.out = Output(layout={'min_height': '500px'})
+        self.displayed_yet = False
+        super().__init__(*args, **kwargs)
+
+    def play(self, do_draw=False):
+        while True:
+            try:
+                self.step()
+                if do_draw:
+                    self.draw()
+            except StopIteration:
+                break
+        LOGGER.info('game over!')
+
+    def step(self):
+        a = self.get_output()
+        b = self.get_output()
+        c = self.get_output()
+        if (a, b) == (-1, 0):
+            self.score = c
+            LOGGER.debug(f'score updated to {self.score}')
+        else:
+            self.screen[a, b] = c
+
+    @property
+    def num_bricks(self):
+        return len([v for v in self.screen.values() if v == BLOCK])
+
+    @property
+    def screen_as_array(self):
+        x_max = y_max = -1
+        x_min = y_min = np.inf
+
+        for (x, y) in self.screen.keys():
+            x_max = max(x, x_max)
+            x_min = min(x, x_min)
+            y_max = max(y, y_max)
+            y_min = min(y, y_min)
+
+        # note: transposing!
+        z = -1 * np.ones((y_max - y_min + 1, x_max - x_min + 1))
+
+        for (x, y), val in self.screen.items():
+            # note: transposing!
+            z[y - y_min, x - x_min] = val
+
+        return z
+
+    @property
+    def screen_as_str(self):
+        return '\n'.join([''.join(DRAW_CHAR[elem] for elem in row)
+                          for row in self.screen_as_array])
+
+    def _pos(self, c):
+        cs = [k for (k, v) in self.screen.items() if v == c]
+        if len(cs) != 1:
+            raise ValueError("too many balls")
+        return cs[0]
+
+    @property
+    def ball_pos(self):
+        return self._pos(BALL)
+
+    @property
+    def paddle_pos(self):
+        return self._pos(PADDLE)
+
+    def get_input(self):
+        LOGGER.debug('asked for input!!')
+        bx = self.ball_pos[0]
+        px = self.paddle_pos[0]
+        if max(bx, px) > 200:
+            raise ValueError()
+        if bx < px:
+            return LEFT
+        elif px < bx:
+            return RIGHT
+        else:
+            return NEUTRAL
+
+    def draw(self):
+        if not self.displayed_yet:
+            display(self.out)
+            self.displayed_yet = True
+        with self.out:
+            self.out.clear_output(wait=True)
+            print(f'{self.screen_as_str}\n\nscore: {self.score}')
 
 
 def compute_intcode(intcode, inputs=[1], inst_ptr=0):
