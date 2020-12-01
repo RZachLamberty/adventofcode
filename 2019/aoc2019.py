@@ -1,6 +1,8 @@
 import functools
+import itertools
 import logging
 import logging.config
+import pprint
 import os
 
 import numpy as np
@@ -54,6 +56,11 @@ MODE_STR = {POSITION: 'POSITION',
             RELATIVE: 'RELATIVE', }
 
 
+def load_intcode(f):
+    with open(f) as fp:
+        return [int(_) for _ in fp.read().strip().split(',')]
+
+
 @functools.lru_cache(None)
 def parse_opcode(x):
     return (x % 100,
@@ -80,6 +87,7 @@ class IntcodeComputer:
         self._orig_intcode = list(intcode)
         self._intcode = dict(enumerate(self._orig_intcode))
         self.inputs = [] if inputs is None else inputs
+        #LOGGER.error(f'inputs = {inputs[:10]}')
         self.inst_ptr = inst_ptr
         self._iter = None
         self.relative_base = relative_base
@@ -316,6 +324,184 @@ class ArcadeGame(IntcodeComputer):
         with self.out:
             self.out.clear_output(wait=True)
             print(f'{self.screen_as_str}\n\nscore: {self.score}')
+
+
+class NetworkedIntcodeComputer:
+    def __init__(self, network_packet_queue, *args, **kwargs):
+        self.network_packet_queue = network_packet_queue
+        super().__init__(*args, **kwargs)
+
+    def get_input(self):
+        LOGGER.debug('popping from self.inputs')
+        LOGGER.debug(f'inputs before: {self.inputs}')
+        try:
+            inp = self.inputs.pop(0)
+        except IndexError:
+            if self.allow_empty_inputs:
+                LOGGER.debug('empty imputs are allowed')
+                inp = -1
+            else:
+                raise
+        LOGGER.debug(f'input to load: {inp}')
+        LOGGER.debug(f'inputs after: {self.inputs}')
+        return inp
+
+    def __iter__(self):
+        while True:
+            self.step()
+    
+    def step(self):
+        LOGGER.info('applying instruction')
+        LOGGER.debug(f'intcode = {self.intcode}')
+        LOGGER.debug(f'inst_ptr = {self.inst_ptr}')
+
+        opcode, a, b, c = self.load_instruction()
+        LOGGER.debug(f'opcode = {opcode}')
+        LOGGER.debug(f'a = {a}')
+        LOGGER.debug(f'b = {b}')
+        LOGGER.debug(f'c = {c}')
+
+        if opcode == ADD:
+            LOGGER.debug(f'ADD: intcode[{c}] = {a} + {b}')
+            self._intcode[c] = a + b
+        elif opcode == MUL:
+            LOGGER.debug(f'MUL: intcode[{c}] = {a} * {b}')
+            self._intcode[c] = a * b
+        elif opcode == IN:
+            self._intcode[a] = self.get_input()
+        elif opcode == OUT:
+            LOGGER.debug(f'output {a}')
+            # TODO: fix this maybe?
+            yield a
+        elif opcode == JUMP_TRUE:
+            LOGGER.debug('jump-if-true (aka non-zero)')
+            LOGGER.debug(f'if {a} != 0: inst_ptr = {b}')
+            if a != 0:
+                self.inst_ptr = b
+        elif opcode == JUMP_FALSE:
+            LOGGER.debug('jump-if-false (aka zero)')
+            LOGGER.debug(f'if {a} == 0: inst_ptr = {b}')
+            if a == 0:
+                self.inst_ptr = b
+        elif opcode == LESS_THAN:
+            LOGGER.debug('less than')
+            LOGGER.debug(f'intcode[c] = {a} < {b}')
+            self._intcode[c] = int(a < b)
+        elif opcode == EQUALS:
+            LOGGER.debug('equals}')
+            LOGGER.debug(f'intcode[c] = {a} == {b}')
+            self._intcode[c] = int(a == b)
+        elif opcode == ADD_RELATIVE_BASE:
+            LOGGER.debug('updating relative base')
+            LOGGER.debug(f'relative_base = {self.relative_base} + {a}')
+            self.relative_base += a
+        elif opcode == HALT:
+            return
+        else:
+            raise ValueError(f'opcode = {opcode}')
+
+
+class InteractiveIntcodeComputer(IntcodeComputer):
+    def __init__(self, *args, command_list, security_ckpt_dir='east',
+                 ultimate_inv=None, **kwargs):
+        """just create an output widget and otherwise defer"""
+        self.command_list = command_list if command_list is not None else []
+        self.security_ckpt_dir = security_ckpt_dir
+        self.ultimate_inv = ultimate_inv
+        if self.ultimate_inv is None:
+            self.ultimate_inv = ['pointer',
+                                 'coin',
+                                 'mug',
+                                 'manifold',
+                                 'hypercube',
+                                 'easter egg',
+                                 'astrolabe']
+        self._currently_holding = set()
+        self._too_heavy_item_sets = set()
+        self._brute_force_num = 1
+        self._item_set_generator = itertools.chain.from_iterable(
+            itertools.combinations(l, i) for i in range(1, len(l) + 1))
+        super().__init__(*args, **kwargs)
+        
+    def get_input(self):
+        #LOGGER.warning(f'len(self.inputs) = {len(self.inputs)}')
+        try:
+            inp = self.inputs.pop(0)
+        except IndexError:
+            self.print_recents()
+            
+            if self.command_list:
+                next_cmd = self.command_list.pop(0) + '\n'
+                print(f'pre supplied command: {next_cmd}')
+            elif self.doing_brute_force:
+                try:
+                    next_cmd = self.brute_force_command_list.pop(0) + '\n'
+                    print(f'brute force command: {next_cmd}')
+                except IndexError:
+                    
+                    self.update_brute_force_command_list()
+                    next_cmd = self.brute_force_command_list.pop(0) + '\n'
+                    print(f'brute force command: {next_cmd}')
+            else:
+                next_cmd = input() + '\n'
+            
+            if next_cmd == ('brute force\n'):
+                print('I got u')
+                self.doing_brute_force = True
+                
+                self.update_brute_force_command_list()
+                next_cmd = self.brute_force_command_list.pop(0) + '\n'
+                print(f'brute force command: {next_cmd}')
+                
+            self.inputs += [ord(_) for _ in next_cmd]
+            inp = self.inputs.pop(0)
+        return inp
+    
+    def update_brute_force_command_list(self):
+        # basically, iterate through possible combinations of
+        # items to hold, step east, and 'see if we won' (tbd)
+        while True:
+            try:
+                next(self._item_set_generator)
+        
+        
+        
+            for item_set in itertools.combinations(self.ultimate_inv, brute_force_num):
+                # is any subset of this item_set too heavy?
+                is_too_heavy = any(set(item_set).intersection(sub_set) == sub_set
+                                   for sub_set in too_heavy_item_sets)
+                if not is_too_heavy:
+                    items_to_drop = currently_holding.difference(item_set)
+                    items_to_take = item_set.difference(currently_holding)
+                    command_list_now = ['drop {}'.format(item) for item in items_to_drop]
+                    command_list_now = ['take {}'.format(item) for item in items_to_take]
+                    command_list_now += ['east']
+
+        command_list_now = []
+        for item_set in itertools.combinations(self.ultimate_inv, self._brute_force_num):
+            command_list_now += ['take {}'.format(item) for item in item_set]
+            command_list_now += ['east']
+            command_list_now += ['drop {}'.format(item) for item in item_set]
+        print('command_list_now:')
+        pprint.pprint(command_list_now)
+        self.command_list += command_list_now
+        self._brute_force_num += 1
+
+        next_cmd = self.command_list.pop(0) + '\n'
+        
+    
+    def print_recents(self):
+        try:
+            print(''.join([chr(_) for _ in self.recent_history]))
+            self.recent_history = []
+        except Exception as e:
+            print(e)
+            print('no recent history recorded')
+    
+    def play(self):
+        self.recent_history = []
+        while True:
+            self.recent_history.append(self.get_output())
 
 
 def compute_intcode(intcode, inputs=[1], inst_ptr=0):
