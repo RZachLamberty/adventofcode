@@ -43,7 +43,7 @@ with open(LOGCONF, 'rb') as f:
 def _target_files(year=2018, rootdir=HERE):
     """generate file paths"""
     for i in range(1, 26):
-        yield i, os.path.join(HERE, str(year), f'day{i:0>2}.ipynb')
+        yield i, os.path.join(rootdir, str(year), f'day{i:0>2}.ipynb')
 
 
 def build(year=2018, rootdir=HERE, ftemplate=FTEMPLATE):
