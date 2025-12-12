@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import logging
 import logging.config
 import os
@@ -88,7 +89,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     year = 'the year of the competition'
-    parser.add_argument("-y", "--year", help=year, default=2018)
+    parser.add_argument("-y", "--year", help=year, default=datetime.datetime.now().year)
 
     rootdir = 'the root directory'
     parser.add_argument("-r", "--rootdir", help=rootdir, default=HERE)

@@ -29,7 +29,7 @@ NESW = [
     [-1,  0],
     [ 0, -1],
 ]
-FNAME = os.path.join('data', 'day1.txt')
+FNAME = os.path.join('data', 'day01.txt')
 logger = logging.getLogger('day1')
 logging.configure()
 

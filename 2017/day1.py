@@ -23,7 +23,7 @@ import eri.logging as logging
 #   Module Constants            #
 # ----------------------------- #
 
-FNAME = os.path.join('data', 'day1.txt')
+FNAME = os.path.join('data', 'day01.txt')
 LOGGER = logging.getLogger('day1')
 logging.configure()
 
